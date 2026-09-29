@@ -55,25 +55,30 @@ def resolve(text: str) -> Location:
     parts = [p.strip() for p in text.split(",") if p.strip()]
     if len(parts) == 3 and parts[2].upper() in ("USA", "US", "UNITED STATES"):
         parts = parts[:2]
-    if len(parts) == 2:  # exactly "City, ST"; anything longer is a street address
-        state = parts[1]
-        hit = gazetteer.lookup(parts[0], state)
+    if len(parts) == 2 and not any(c.isdigit() for c in text):  # "City, ST"; digits mean a street address
+        city, state = parts
+        code = gazetteer.normalize_state(state)
+        if not code:
+            raise GeocodingError(f"'{state}' in '{text}' is not a US state (expected 'City, ST').")
+        hit = gazetteer.lookup(city, code)
         if hit:
             lat, lon, name = hit
-            return Location(lat, lon, f"{name}, {gazetteer.normalize_state(state)}", "census_gazetteer")
+            return Location(lat, lon, f"{name}, {code}", "census_gazetteer")
+        # Structured search, so an unknown city can't fuzzy-match a street elsewhere.
+        return nominatim(text, {"city": city, "state": gazetteer.US_STATES[code]})
 
     return nominatim(text)
 
 
-def nominatim(query: str) -> Location:
-    key = "nominatim:" + re.sub(r"\s+", " ", query.lower())
+def nominatim(query: str, structured: dict | None = None) -> Location:
+    key = "nominatim:" + re.sub(r"\s+", " ", query.lower()) + (":structured" if structured else "")
     cached = cache.get(key)
     if cached:
         return Location(**cached)
     try:
         resp = requests.get(
             settings.NOMINATIM_URL,
-            params={"q": query, "format": "jsonv2", "limit": 1, "countrycodes": "us"},
+            params={**(structured or {"q": query}), "format": "jsonv2", "limit": 1, "countrycodes": "us"},
             headers={"User-Agent": settings.HTTP_USER_AGENT},
             timeout=settings.HTTP_TIMEOUT_SECONDS,
         )

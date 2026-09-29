@@ -38,6 +38,18 @@ class ResolveTests(SimpleTestCase):
         nominatim.assert_not_called()
 
     @mock.patch("fuel_planner.services.geocoding.nominatim")
+    def test_non_us_state_rejected(self, nominatim):
+        for text in ("Toronto, ON", "Atlantis, ZZ"):
+            with self.assertRaises(geocoding.GeocodingError):
+                geocoding.resolve(text)
+        nominatim.assert_not_called()
+
+    @mock.patch("fuel_planner.services.geocoding.nominatim")
+    def test_unknown_city_uses_structured_search(self, nominatim):
+        geocoding.resolve("Nowhereville, TX")
+        nominatim.assert_called_once_with("Nowhereville, TX", {"city": "Nowhereville", "state": "Texas"})
+
+    @mock.patch("fuel_planner.services.geocoding.nominatim")
     def test_street_address_goes_to_nominatim(self, nominatim):
         geocoding.resolve("1600 Pennsylvania Ave NW, Washington, DC")
         nominatim.assert_called_once()
